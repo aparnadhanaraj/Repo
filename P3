@@ -1,0 +1,124 @@
+from fastapi import FastAPI, HTTPException, status, Depends, Query, Path
+from sqlalchemy import create_engine, Column, Integer, String, Date, CheckConstraint
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from pydantic import BaseModel, Field
+from datetime import date
+import typing
+
+DATABASE_URL = "sqlite:///./service_bookings.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base = declarative_base()
+
+# SQLAlchemy Model
+class ServiceBooking(Base):
+    __tablename__ = "service_bookings"
+    id = Column(Integer, primary_key=True, index=True)
+    customer_name = Column(String(100), nullable=False)
+    vehicle_number = Column(String(20), nullable=False)
+    service_type = Column(String(50), nullable=False)
+    booking_date = Column(Date, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("length(vehicle_number) > 0", name="check_vehicle_number"),
+    )
+
+Base.metadata.create_all(bind=engine)
+
+# Pydantic Schemas
+class BookingBase(BaseModel):
+    customer_name: str = Field(..., max_length=100)
+    vehicle_number: str = Field(..., min_length=1, max_length=20)
+    service_type: str = Field(..., min_length=1, max_length=50)
+    booking_date: date
+
+    @classmethod
+    def validate_date(cls, v):
+        if v < date.today():
+            raise ValueError("Booking date cannot be in the past.")
+        return v
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate_date
+
+class BookingCreate(BookingBase):
+    pass
+
+class BookingUpdate(BaseModel):
+    customer_name: str | None = None
+    vehicle_number: str | None = None
+    service_type: str | None = None
+    booking_date: date | None = None
+
+    @classmethod
+    def validate_date(cls, v):
+        if v and v < date.today():
+            raise ValueError("Booking date cannot be in the past.")
+        return v
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate_date
+
+class BookingRead(BookingBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+# FastAPI App
+app = FastAPI(title="Vehicle Service Centre Management System")
+
+# Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Routes
+@app.post("/bookings", response_model=BookingRead, status_code=status.HTTP_201_CREATED)
+def add_booking(booking: BookingCreate, db: Session = Depends(get_db)):
+    b = ServiceBooking(**booking.dict())
+    db.add(b)
+    db.commit()
+    db.refresh(b)
+    print("🛠️ Added booking for:", b.customer_name)
+    return b
+
+@app.get("/bookings", response_model=typing.List[BookingRead])
+def list_bookings(db: Session = Depends(get_db)):
+    bookings = db.query(ServiceBooking).all()
+    print("📋 Listing all bookings")
+    return bookings
+
+@app.get("/bookings/{booking_id}", response_model=BookingRead)
+def get_booking(booking_id: int = Path(..., ge=1), db: Session = Depends(get_db)):
+    booking = db.query(ServiceBooking).filter(ServiceBooking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    print(f"🔍 Fetching booking ID: {booking_id}")
+    return booking
+
+@app.put("/bookings/{booking_id}", response_model=BookingRead)
+def update_booking(booking_id: int, updates: BookingUpdate, db: Session = Depends(get_db)):
+    booking = db.query(ServiceBooking).filter(ServiceBooking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    for field, value in updates.dict(exclude_unset=True).items():
+        setattr(booking, field, value)
+    db.commit()
+    db.refresh(booking)
+    print(f"✏️ Updated booking ID: {booking_id}")
+    return booking
+
+@app.delete("/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_booking(booking_id: int, db: Session = Depends(get_db)):
+    booking = db.query(ServiceBooking).filter(ServiceBooking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    db.delete(booking)
+    db.commit()
+    print(f"🗑️ Deleted booking ID: {booking_id}")
