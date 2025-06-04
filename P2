@@ -1,0 +1,45 @@
+# client.py
+import requests
+
+BASE = "http://127.0.0.1:8000"
+
+def add_service():
+    service = {
+        "customer_name": "John Doe",
+        "vehicle_type": "Car",
+        "vehicle_number": "AB1234",
+        "service_type": "Oil Change",
+        "cost": 49.99,
+        "status": "Pending"
+    }
+    response = requests.post(f"{BASE}/services", json=service)
+    print("POST ➕", response.status_code, response.json())
+
+def list_services():
+    response = requests.get(f"{BASE}/services")
+    print("GET 📋", response.status_code)
+    for s in response.json():
+        print(s)
+
+def get_service(service_id):
+    response = requests.get(f"{BASE}/services/{service_id}")
+    print("GET 🔍", response.status_code, response.json())
+
+def update_service(service_id):
+    updates = {
+        "status": "Completed",
+        "cost": 59.99
+    }
+    response = requests.put(f"{BASE}/services/{service_id}", json=updates)
+    print("PUT ✏️", response.status_code, response.json())
+
+def delete_service(service_id):
+    response = requests.delete(f"{BASE}/services/{service_id}")
+    print("DELETE 🗑️", response.status_code)
+
+# 🧪 Test Calls
+add_service()
+list_services()
+get_service(1)
+update_service(1)
+delete_service(1)
