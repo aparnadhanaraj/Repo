@@ -1,0 +1,43 @@
+import requests
+from datetime import date, timedelta
+
+BASE = "http://127.0.0.1:8000"
+
+def add_booking():
+    booking = {
+        "customer_name": "John Doe",
+        "vehicle_number": "TN01AB1234",
+        "service_type": "Oil Change",
+        "booking_date": str(date.today() + timedelta(days=1))  # Future date
+    }
+    response = requests.post(f"{BASE}/bookings", json=booking)
+    print("POST ➕", response.status_code, response.json())
+
+def list_bookings():
+    response = requests.get(f"{BASE}/bookings")
+    print("GET 📋", response.status_code)
+    for b in response.json():
+        print(b)
+
+def get_booking(booking_id):
+    response = requests.get(f"{BASE}/bookings/{booking_id}")
+    print("GET 🔍", response.status_code, response.json())
+
+def update_booking(booking_id):
+    updates = {
+        "service_type": "Full Service",
+        "booking_date": str(date.today() + timedelta(days=2))
+    }
+    response = requests.put(f"{BASE}/bookings/{booking_id}", json=updates)
+    print("PUT ✏️", response.status_code, response.json())
+
+def delete_booking(booking_id):
+    response = requests.delete(f"{BASE}/bookings/{booking_id}")
+    print("DELETE 🗑️", response.status_code)
+
+# 🧪 Example Calls
+add_booking()
+list_bookings()
+get_booking(1)
+update_booking(1)
+delete_booking(1)
