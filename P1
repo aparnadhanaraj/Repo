@@ -1,0 +1,112 @@
+# app.py
+from fastapi import FastAPI, HTTPException, status, Depends, Query, Path
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Numeric, DateTime
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from pydantic import BaseModel, Field, PositiveFloat
+from datetime import datetime
+import typing
+
+DATABASE_URL = "sqlite:///./service_center.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base = declarative_base()
+
+# SQLAlchemy Model
+class Service(Base):
+    __tablename__ = "services"
+    id = Column(Integer, primary_key=True, index=True)
+    customer_name = Column(String(100), nullable=False)
+    vehicle_type = Column(String(50), nullable=False)
+    vehicle_number = Column(String(20), nullable=False, unique=True)
+    service_type = Column(String(100), nullable=False)
+    cost = Column(Numeric(10, 2), nullable=False)
+    status = Column(String(20), default="Pending")  # e.g., Pending, In Progress, Completed
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
+
+# Pydantic Schemas
+class ServiceBase(BaseModel):
+    customer_name: str
+    vehicle_type: str
+    vehicle_number: str
+    service_type: str
+    cost: PositiveFloat
+    status: str = "Pending"
+
+class ServiceCreate(ServiceBase):
+    pass
+
+class ServiceUpdate(BaseModel):
+    service_type: typing.Optional[str] = None
+    cost: typing.Optional[PositiveFloat] = None
+    status: typing.Optional[str] = None
+
+class ServiceRead(ServiceBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# FastAPI App
+app = FastAPI(title="Vehicle Service Centre Management System")
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.post("/services", response_model=ServiceRead, status_code=status.HTTP_201_CREATED)
+def add_service(service: ServiceCreate, db: Session = Depends(get_db)):
+    s = Service(**service.dict())
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    print("🛠️ Added service for:", s.customer_name)
+    return s
+
+@app.get("/services", response_model=typing.List[ServiceRead])
+def list_services(
+    status: typing.Optional[str] = Query(None),
+    vehicle_type: typing.Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Service)
+    if status:
+        query = query.filter(Service.status == status)
+    if vehicle_type:
+        query = query.filter(Service.vehicle_type == vehicle_type)
+    print("📋 Listing services")
+    return query.all()
+
+@app.get("/services/{service_id}", response_model=ServiceRead)
+def get_service(service_id: int = Path(..., ge=1), db: Session = Depends(get_db)):
+    service = db.query(Service).filter(Service.id == service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    print("🔍 Fetching service ID:", service_id)
+    return service
+
+@app.put("/services/{service_id}", response_model=ServiceRead)
+def update_service(service_id: int, updates: ServiceUpdate, db: Session = Depends(get_db)):
+    service = db.query(Service).filter(Service.id == service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    for field, value in updates.dict(exclude_unset=True).items():
+        setattr(service, field, value)
+    db.commit()
+    db.refresh(service)
+    print("✏️ Updated service ID:", service_id)
+    return service
+
+@app.delete("/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_service(service_id: int, db: Session = Depends(get_db)):
+    service = db.query(Service).filter(Service.id == service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    db.delete(service)
+    db.commit()
+    print("🗑️ Deleted service ID:", service_id)
